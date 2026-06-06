@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="branding/digon-logo-globe.svg" alt="digon logo" width="120" height="120">
+  <img src="branding/digon-logo-globe.svg" alt="digon logo" width="170" height="170">
 </p>
 
 <h1 align="center">digon</h1>
