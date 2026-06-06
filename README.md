@@ -1,8 +1,13 @@
-# digon
+<p align="center">
+  <img src="branding/digon-logo-globe.svg" alt="digon logo" width="120" height="120">
+</p>
 
-A small, fast-compiling systems language with compile-time memory safety,
-arena-first data, structural traits, and native C interop. Compiles to native
-executables via LLVM.
+<h1 align="center">digon</h1>
+
+<p align="center">
+  A small, fast-compiling systems language with compile-time memory safety,<br>
+  arena-first data, structural traits, and native C interop.
+</p>
 
 > Pre-alpha. The language and toolchain are under active development.
 

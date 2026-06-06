@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="digon">
+  <!-- Flat two-color spherical lune. Best for small sizes / favicons, where the
+       3D gradients of digon-logo.svg would muddy. Palette matches the 3D mark. -->
+  <circle cx="128" cy="128" r="96" fill="#123C42"/>
+  <path d="M128 32 A 40 96 0 0 0 128 224 Z" fill="#E8B878"/>
+  <path d="M128 32 A 40 96 0 0 1 128 224 Z" fill="#CF9A55"/>
+</svg>
