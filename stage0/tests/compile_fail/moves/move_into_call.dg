@@ -1,0 +1,8 @@
+type P { v: i32 }
+func consume(p: P) -> i32 { p.v }
+func main() -> i32 {
+    let p = P { v: 3 }
+    let a = consume(p)
+    let b = consume(p)
+    a + b
+}

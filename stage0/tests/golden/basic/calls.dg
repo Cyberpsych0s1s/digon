@@ -1,0 +1,7 @@
+func sq(n: i32) -> i32 {
+    n * n
+}
+
+func main() -> i32 {
+    sq(3) + sq(4)
+}

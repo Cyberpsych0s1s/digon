@@ -1,0 +1,6 @@
+type Point { x: i32 }
+func main() -> i32 {
+    let p = Point { x: 0 }
+    let q = ref mut p
+    0
+}

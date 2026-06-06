@@ -1,0 +1,10 @@
+// `move x` is an explicit move: it transfers the value and marks the source
+// moved (a subsequent use would be a compile error).
+type P { x: i32 }
+func take(p: P) -> i32 { p.x }
+
+func main() -> i32 {
+    let p = P { x: 42 }
+    let q = move p
+    take(q)
+}

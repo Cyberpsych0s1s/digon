@@ -1,0 +1,14 @@
+type IntOpt = Some(i32) | None
+
+func value_or(o: IntOpt, dflt: i32) -> i32 {
+    match o {
+        IntOpt.Some(x) => x,
+        IntOpt.None    => dflt,
+    }
+}
+
+func main() -> i32 {
+    let a = IntOpt.Some(7)
+    let b = IntOpt.None
+    value_or(a, 100) + value_or(b, 5)
+}

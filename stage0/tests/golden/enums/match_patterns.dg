@@ -1,0 +1,37 @@
+// Literal patterns, guards, and bare-name bindings.
+extern "c" func puts(s: str) -> i32
+
+type Result = Ok(i32) | Err(str) | Pending
+
+func classify(n: i32) -> i32 {
+    match n {
+        0           => 1,            // literal
+        1           => 2,
+        x if x > 9  => x - 7,         // guarded bare-name binding
+        x           => x * 2,         // unguarded catch-all
+    }
+}
+
+func describe(r: Result) -> i32 {
+    match r {
+        Result.Ok(x) if x > 0 => x,    // guarded variant
+        Result.Ok(_)          => 7,    // unguarded fallback (uses _ binding)
+        Result.Err(m)         => {
+            puts(m)
+            8
+        },
+        Result.Pending        => 9,
+    }
+}
+
+func main() -> i32 {
+    let a = classify(0)                 // 1
+    let b = classify(1)                 // 2
+    let c = classify(3)                 // 6 (catch-all: 3 * 2)
+    let d = classify(20)                // 13 (20 - 7)
+    let e = describe(Result.Ok(5))      // 5
+    let f = describe(Result.Ok(0))      // 7 (guard fails, fallback)
+    let g = describe(Result.Pending)    // 9
+    // 1 + 2 + 6 + 13 + 5 + 7 + 9 = 43
+    a + b + c + d + e + f + g
+}

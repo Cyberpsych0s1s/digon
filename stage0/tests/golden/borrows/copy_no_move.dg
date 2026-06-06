@@ -1,0 +1,5 @@
+func main() -> i32 {
+    let x = 5
+    let y = x
+    x + y
+}

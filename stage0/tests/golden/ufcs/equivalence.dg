@@ -1,0 +1,6 @@
+// `x.f(y)` and `f(x, y)` are the same call.
+func add(a: i64, b: i64) -> i64 { a + b }
+func main() -> i32 {
+    let x = 20i64
+    (x.add(22) + add(x, 0)) as i32   // 42 + 20 = 62
+}

@@ -1,0 +1,7 @@
+type Color = Red | Green | Blue
+func main() -> i32 {
+    match Color.Red {
+        Color.Red => 1,
+        Color.Green => 2,
+    }
+}

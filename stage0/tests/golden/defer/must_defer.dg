@@ -1,0 +1,8 @@
+@must_defer
+type File { id: i32 }
+func close_file(f: ref File) -> i32 { f.id }
+func main() -> i32 {
+    let f = File { id: 7 }
+    defer close_file(ref f)
+    0
+}

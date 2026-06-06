@@ -1,0 +1,12 @@
+// Full NLL: a let-bound borrow expires at its last use, so subsequent writes
+// to the borrowed binding are permitted. Under NLL-lite this used to error.
+type P { v: i32 }
+func read(p: ref P) -> i32 { p.v }
+
+func main() -> i32 {
+    var p = P { v: 10 }
+    let r = ref p          // borrow live...
+    let x = read(r)        // ...until here (last use of r)
+    p = P { v: 20 }        // now legal: borrow released
+    x + p.v
+}

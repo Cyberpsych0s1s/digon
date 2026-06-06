@@ -1,0 +1,13 @@
+extern "c" func puts(s: *u8) -> i32
+
+func main() -> i32 {
+    defer puts("z-cleanup")
+    defer puts("y-cleanup")
+    puts("start")
+    if true {
+        puts("about to return early")
+        return 42
+    }
+    puts("unreachable")
+    0
+}

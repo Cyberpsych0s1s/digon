@@ -1,0 +1,6 @@
+type Point { x: i32 }
+func leak() -> ref Point {
+    let p = Point { x: 1 }
+    ref p
+}
+func main() -> i32 { 0 }

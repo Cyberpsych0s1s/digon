@@ -1,0 +1,7 @@
+func bump(p: ref mut i32) -> i32 { 0 }
+func main() -> i32 {
+    var x = 10
+    bump(ref mut x)
+    x = 20
+    x
+}

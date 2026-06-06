@@ -1,0 +1,15 @@
+# Build output
+build/
+stage0/build/
+
+# Compiled artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+
+# Internal docs / planning and editor config (kept private)
+spec/
+editor/
+.vscode/

@@ -1,0 +1,8 @@
+extern "c" func puts(s: *u8) -> i32
+
+func main() -> i32 {
+    defer puts("third (defer 1)")
+    defer puts("second (defer 2)")
+    puts("first (body)")
+    0
+}

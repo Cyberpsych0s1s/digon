@@ -1,0 +1,2 @@
+func g(a: i32) -> i32 { a }
+func main() -> i32 { g(1, 2) }

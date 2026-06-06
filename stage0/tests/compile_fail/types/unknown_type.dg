@@ -1,0 +1,3 @@
+func f(x: Widget) -> i32 {
+    0
+}

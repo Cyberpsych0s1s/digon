@@ -1,0 +1,8 @@
+type P { v: i32 }
+func sum(p: ref P) -> i32 { p.v }
+func main() -> i32 {
+    let p = P { v: 7 }
+    let a = ref p
+    let b = ref p
+    sum(a) + sum(b)
+}

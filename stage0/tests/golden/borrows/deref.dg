@@ -1,0 +1,7 @@
+type Point { x: i32, y: i32 }
+func main() -> i32 {
+    let p = Point { x: 3, y: 5 }
+    let r = ref p
+    let q = *r
+    q.x * q.y
+}

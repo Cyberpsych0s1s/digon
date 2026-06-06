@@ -1,0 +1,11 @@
+extern "c" func puts(s: str) -> i32
+func use(r: ref i32) -> i32 {
+    puts("got")
+    0
+}
+func main() -> i32 {
+    var x = 10
+    let r = ref x
+    x = 20      // r is still live (used below), so this assignment errors
+    use(r)
+}

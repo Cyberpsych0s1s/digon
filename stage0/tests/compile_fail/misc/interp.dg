@@ -1,0 +1,6 @@
+extern "c" func puts(s: *u8) -> i32
+
+func main() {
+    let n = 5
+    puts("count is ${n}")
+}

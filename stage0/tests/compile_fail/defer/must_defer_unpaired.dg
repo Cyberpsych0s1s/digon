@@ -1,0 +1,6 @@
+@must_defer
+type File { id: i32 }
+func main() -> i32 {
+    let f = File { id: 7 }
+    0
+}

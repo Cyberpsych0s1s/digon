@@ -1,0 +1,14 @@
+// UFCS: `recv.f(args)` calls the free function `f(recv, args)`. The receiver is
+// auto-borrowed when the parameter is `ref T`, passed by value otherwise.
+type Point { x: i64, y: i64 }
+func area(p: ref Point) -> i64 { p.x * p.y }
+func scaled(p: ref Point, k: i64) -> i64 { (p.x + p.y) * k }
+func sumc(p: Point) -> i64 { p.x + p.y }
+
+func main() -> i32 {
+    let pt = Point { x: 3, y: 4 }
+    let a = pt.area()       // area(ref pt)      = 12
+    let s = pt.scaled(10)   // scaled(ref pt,10) = 70
+    let v = pt.sumc()       // sumc(pt)          = 7
+    (a + s + v) as i32      // 89
+}

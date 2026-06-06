@@ -1,0 +1,6 @@
+func main() -> i32 {
+    var x = 5
+    x = x + 3
+    let y = x * 2
+    return y
+}

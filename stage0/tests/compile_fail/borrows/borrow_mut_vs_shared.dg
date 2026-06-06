@@ -1,0 +1,9 @@
+type P { v: i32 }
+func sum(a: ref P, b: ref P, c: ref P) -> i32 { a.v + b.v + c.v }
+func main() -> i32 {
+    var p = P { v: 0 }
+    let a = ref p
+    let b = ref p
+    let c = ref mut p
+    sum(a, b, c)  // a, b still live here, so `ref mut p` above conflicts
+}

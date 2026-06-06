@@ -1,0 +1,3 @@
+# Normalize line endings: store text as LF in the repo and check it out as LF
+# on every platform. Keeps the bash test runner and .dg fixtures consistent.
+* text=auto eol=lf

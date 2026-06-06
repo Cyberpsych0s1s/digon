@@ -1,0 +1,7 @@
+func main() -> i32 {
+    let n = 5
+    match n {
+        0 => 1,
+        1 => 2,
+    }
+}

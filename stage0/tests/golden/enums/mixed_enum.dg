@@ -1,0 +1,24 @@
+// Mixed-payload variants: each variant carries its own type.
+// Result.Ok holds an i32, Result.Err holds a string (str), Result.Pending
+// is fieldless. This used to be rejected by the uniformity check.
+extern "c" func puts(s: str) -> i32
+
+type Result = Ok(i32) | Err(str) | Pending
+
+func code(r: Result) -> i32 {
+    match r {
+        Result.Ok(n)  => n,
+        Result.Err(m) => {
+            puts(m)
+            -1
+        },
+        Result.Pending => 0,
+    }
+}
+
+func main() -> i32 {
+    let ok  = Result.Ok(42)
+    let err = Result.Err("boom")
+    let pen = Result.Pending
+    code(ok) + code(err) + code(pen)
+}

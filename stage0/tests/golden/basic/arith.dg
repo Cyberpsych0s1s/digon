@@ -1,0 +1,8 @@
+func add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+func main() -> i32 {
+    let x = 1 + 2 * 3
+    add(x, 4)
+}

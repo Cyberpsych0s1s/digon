@@ -1,0 +1,10 @@
+type Point { x: i32, y: i32 }
+
+func sum(p: ref Point) -> i32 {
+    p.x + p.y
+}
+
+func main() -> i32 {
+    let p = Point { x: 3, y: 4 }
+    sum(ref p)
+}

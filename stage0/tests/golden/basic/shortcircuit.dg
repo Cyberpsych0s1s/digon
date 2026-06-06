@@ -1,0 +1,5 @@
+func main() -> i32 {
+    let a = true
+    let b = false
+    if a && !b { 7 } else { 0 }
+}

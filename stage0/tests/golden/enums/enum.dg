@@ -1,0 +1,14 @@
+type Color = Red | Green | Blue
+
+func code(c: Color) -> i32 {
+    match c {
+        Color.Red   => 10,
+        Color.Green => 20,
+        Color.Blue  => 30,
+    }
+}
+
+func main() -> i32 {
+    let c = Color.Green
+    code(c) + code(Color.Blue)
+}

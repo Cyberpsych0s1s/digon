@@ -1,0 +1,5 @@
+func g(a: ref mut i32, b: ref i32) -> i32 { 0 }
+func main() -> i32 {
+    var x = 0
+    g(ref mut x, ref x)
+}

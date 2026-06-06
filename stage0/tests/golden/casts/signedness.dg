@@ -1,0 +1,16 @@
+// A same-width `as` between signed and unsigned must rebrand the value so
+// later signedness-sensitive ops (UDiv, unsigned compare, LShr) are correct.
+func main() -> i32 {
+    let neg = 0i32 - 1      // bit pattern 0xFFFFFFFF
+    let u = neg as u32      // reinterpret -> 4294967295
+
+    // unsigned division: 4294967295 / 2 = 2147483647 (signed SDiv would give 0)
+    let d = u / 2u32
+    let dchk = if d > 2000000000u32 { 1 } else { 0 }   // unsigned compare
+
+    // unsigned (logical) shift: 0xFFFFFFFF >> 28 = 15 (arithmetic would give -1)
+    let sh = u >> 28u32
+    let schk = sh as i32
+
+    dchk + schk            // 1 + 15 = 16
+}

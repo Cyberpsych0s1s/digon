@@ -1,0 +1,5 @@
+// No free function named `frobnicate` accepts the receiver type.
+func main() -> i32 {
+    let x = 5
+    x.frobnicate()
+}

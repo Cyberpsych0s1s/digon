@@ -1,0 +1,17 @@
+// `as` numeric casts: int<->int (trunc / sext / zext), int<->float, float<->int.
+func main() -> i32 {
+    // int widening (sext) and narrowing (trunc)
+    let wide = 300i64       // 0x12C
+    let narrow = wide as u8 // 0x2C = 44
+    let back = narrow as i32
+
+    // int -> float -> int round-trips through f64
+    let n = 7 as f64
+    let r = n as i32
+
+    // float -> int truncates toward zero
+    let f = 3.9
+    let t = f as i32
+
+    back + r + t            // 44 + 7 + 3 = 54
+}

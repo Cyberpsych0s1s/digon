@@ -1,0 +1,6 @@
+type P { v: i32 }
+func main() -> i32 {
+    let p = P { v: 3 }
+    let q = p
+    p.v
+}

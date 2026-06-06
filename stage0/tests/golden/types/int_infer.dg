@@ -1,0 +1,15 @@
+// Unsuffixed integer literals infer their width from context: binding
+// annotations, arithmetic, comparisons, ranges, call args, and returns.
+func wants(x: i64) -> i64 { x }
+
+func main() -> i32 {
+    let a: i64 = 5            // annotation
+    let b: i64 = 5 + 3 * 2    // arithmetic subtree inherits i64
+    let c: u8  = 200          // unsigned width
+    var sum: i64 = 0
+    for i in 0..a {           // range: 0 adopts a's i64
+        sum = sum + wants(1)  // call arg 1 adopts i64; assignment RHS i64
+    }
+    let ok = if sum < b { 1i64 } else { 0i64 }   // 5 < 11 -> 1
+    (a + b + c as i64 + sum + ok) as i32          // 5+11+200+5+1 = 222
+}
