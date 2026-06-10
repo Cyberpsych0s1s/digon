@@ -1,0 +1,12 @@
+// `alias` is transparent; a `type X = T` newtype is nominal (needs a cast).
+alias Count = i64
+type UserId = i64
+
+func add(a: Count, b: Count) -> Count { a + b }
+
+func main() -> i32 {
+    let total: Count = add(40, 2)   // alias flows as plain i64
+    let id = total as UserId        // wrap into the newtype
+    let raw = id as i64             // unwrap
+    raw as i32
+}

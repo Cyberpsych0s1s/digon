@@ -2,6 +2,7 @@
 #define DIGON_VEC_H
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 
 // Growth policy and OOM handling live in vec.cc so they exist once.
@@ -20,6 +21,9 @@ struct Vec {
     void reserve(size_t want) {
         if (want <= capacity) return;
         size_t newcap = vec_next_capacity(capacity, want);
+        // Guard the byte-count multiply: a wrap would under-allocate and turn
+        // later writes into a heap overflow. Treat overflow as OOM.
+        if (newcap > SIZE_MAX / sizeof(T)) vec_oom(SIZE_MAX);
         T* p = static_cast<T*>(std::realloc(data, newcap * sizeof(T)));
         if (!p) vec_oom(newcap * sizeof(T));
         data     = p;

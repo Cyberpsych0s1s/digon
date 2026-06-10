@@ -168,7 +168,11 @@ struct Param {
     Span      span;
 };
 
-enum class ItemKind : uint8_t { Func, Struct, Enum };
+enum class ItemKind : uint8_t { Func, Struct, Enum, Alias };
+
+// `alias Name = T` (transparent: Name is T) or `type Name = T` where T is a
+// single type (a newtype: distinct nominal type wrapping T, requires a cast).
+struct AliasData { uint32_t name; TypeExpr* target; bool is_newtype; };
 
 struct FieldDecl { uint32_t name; TypeExpr* type; Span span; };
 struct StructData { uint32_t name; FieldDecl* fields; uint32_t nfields; bool is_must_defer; };
@@ -201,6 +205,7 @@ struct Item {
         FuncData   func;
         StructData struct_;
         EnumData   enum_;
+        AliasData  alias;
     } as;
 };
 

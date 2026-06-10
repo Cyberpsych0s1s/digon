@@ -1,0 +1,4 @@
+// A self-referential alias chain is rejected rather than looping forever.
+alias A = B
+alias B = A
+func main() -> i32 { 0 }

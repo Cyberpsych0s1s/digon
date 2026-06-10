@@ -290,6 +290,11 @@ bool emit_object(const MModule* mod, const Interner* in, const char* obj_path,
                 case MOp::GetField:
                     out = builder.CreateExtractValue(vals[ins.a], {ins.field_index});
                     break;
+                case MOp::FieldPtr: {
+                    StructType* st = structTys[static_cast<uint32_t>(ins.imm_int)];
+                    out = builder.CreateStructGEP(st, vals[ins.a], ins.field_index);
+                    break;
+                }
                 case MOp::EnumCons: {
                     // Stack-build a fresh enum repr, populate tag + payload,
                     // then load it back as a first-class value.

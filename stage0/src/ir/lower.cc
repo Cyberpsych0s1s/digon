@@ -1,5 +1,6 @@
 #include "lower.h"
 
+#include <cassert>
 #include <cstring>
 
 #include "map.h"
@@ -14,6 +15,7 @@ struct Lowerer {
     Map       func_index;   // interned name -> (index into funcs)
     Map       struct_index; // interned name -> (index into structs)
     Map       enum_byname;  // interned name -> LEnum* (fieldless variant list)
+    Map       type_alias;   // interned name -> TypeExpr* (alias / newtype target)
     MModule*  mod;
 
     // Per-function build state.
@@ -214,6 +216,11 @@ MType map_type(Lowerer* L, const TypeExpr* t) {
             LEnum* le = static_cast<LEnum*>(lev);
             return le->any_payload ? mt_enum(le->enum_index) : mt_int(32, false);
         }
+    }
+    // Aliases and newtypes erase to their underlying representation.
+    void* av = nullptr;
+    if (map_lookup(&L->type_alias, t->name, &av)) {
+        return map_type(L, static_cast<const TypeExpr*>(av));
     }
     diag_errorf(L->diag, t->span, "unknown type '%.*s'", static_cast<int>(len), s);
     return mt_int(32, true);
@@ -757,6 +764,44 @@ uint32_t lower_expr(Lowerer* L, const Expr* e) {
             if (op == Tok::Eq) {
                 const Expr* lhs = e->as.binary.lhs;
                 uint32_t    rv  = lower_expr(L, e->as.binary.rhs);
+
+                // Field assignment: `base.field = rv`. Compute the field's
+                // address (from the base's slot, dereferencing a ref base) and
+                // store through it. The checker has validated mutability/types.
+                if (lhs->kind == ExprKind::Field) {
+                    const Expr* base = lhs->as.field.obj;
+                    void*       bv   = nullptr;
+                    if (base->kind != ExprKind::Ident ||
+                        !map_lookup(&L->scope, base->as.ident.name, &bv))
+                        return rv; // checker already reported
+                    uint32_t slot    = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(bv));
+                    MType    slot_ty = L->pool[slot].type;
+                    // The checker guarantees the base is a struct or a ref to one.
+                    assert((slot_ty.kind == MTypeKind::Struct ||
+                            slot_ty.kind == MTypeKind::Ref) &&
+                           "field-assign base must be a struct or ref-to-struct");
+                    uint32_t addr, struct_idx = slot_ty.struct_index;
+                    if (slot_ty.kind == MTypeKind::Ref) {
+                        MInst ld = mk(MOp::Load, mt_ptr(), e->span); // the ref = struct address
+                        ld.a = slot;
+                        addr = emit(L, ld);
+                    } else {
+                        addr = slot; // alloca of the struct is its address
+                    }
+                    const MStructDef& sd   = L->mod->structs[struct_idx];
+                    uint32_t          fidx = sd.nfields; // sentinel: not found
+                    for (uint32_t k = 0; k < sd.nfields; k++)
+                        if (sd.field_names[k] == lhs->as.field.name) { fidx = k; break; }
+                    assert(fidx < sd.nfields && "field-assign: unknown field (checker should have caught)");
+                    MInst fp = mk(MOp::FieldPtr, mt_ptr(), e->span);
+                    fp.a = addr; fp.field_index = fidx; fp.imm_int = struct_idx;
+                    uint32_t fptr = emit(L, fp);
+                    MInst st = mk(MOp::Store, mt_void(), e->span);
+                    st.a = fptr; st.b = rv;
+                    emit(L, st);
+                    return rv;
+                }
+
                 if (lhs->kind != ExprKind::Ident) {
                     diag_errorf(L->diag, e->span, "assignment target must be a name");
                     return rv;
@@ -841,10 +886,11 @@ uint32_t lower_expr(Lowerer* L, const Expr* e) {
                 ot            = pointee;
             }
             const MStructDef& sd  = L->mod->structs[ot.struct_index];
-            uint32_t          fidx = 0;
+            uint32_t          fidx = sd.nfields; // sentinel: not found
             MType             fty  = mt_void();
             for (uint32_t k = 0; k < sd.nfields; k++)
                 if (sd.field_names[k] == e->as.field.name) { fidx = k; fty = sd.field_types[k]; break; }
+            assert(fidx < sd.nfields && "field read: unknown field (checker should have caught)");
             MInst inst       = mk(MOp::GetField, fty, e->span);
             inst.a           = obj;
             inst.field_index = fidx;
@@ -1084,8 +1130,17 @@ MModule* lower_module(const Module* ast, arena* a, Interner* in, Diag* diag) {
     L.func_index   = Map{};
     L.struct_index = Map{};
     L.enum_byname  = Map{};
+    L.type_alias   = Map{};
 
     uint32_t main_id = intern_cstr(in, "main");
+
+    // Register alias / newtype targets first so map_type can erase them while
+    // resolving struct fields, signatures, and bodies.
+    for (uint32_t i = 0; i < ast->nitems; i++) {
+        const Item* it = ast->items[i];
+        if (it->kind == ItemKind::Alias)
+            map_put(&L.type_alias, it->as.alias.name, const_cast<TypeExpr*>(it->as.alias.target));
+    }
 
     // Build the struct table first (register names, then resolve field types,
     // which may reference other structs). The enum registry is built afterward
@@ -1208,5 +1263,6 @@ MModule* lower_module(const Module* ast, arena* a, Interner* in, Diag* diag) {
     map_free(&L.func_index);
     map_free(&L.struct_index);
     map_free(&L.enum_byname);
+    map_free(&L.type_alias);
     return mod;
 }

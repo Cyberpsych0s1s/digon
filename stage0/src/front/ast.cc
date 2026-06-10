@@ -296,6 +296,15 @@ void dump_item(Vec<char>* out, const Interner* in, const Item* it) {
             emit(out, ")");
             break;
         }
+        case ItemKind::Alias: {
+            const AliasData& a = it->as.alias;
+            emit(out, a.is_newtype ? "(newtype " : "(alias ");
+            emit_name(out, in, a.name);
+            emit(out, " ");
+            dump_type(out, in, a.target);
+            emit(out, ")");
+            break;
+        }
     }
 }
 

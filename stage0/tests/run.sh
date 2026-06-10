@@ -15,7 +15,14 @@
 
 set -u
 
-here="$(cd "$(dirname "$0")" && pwd)"
+# Resolve this script's directory using only bash builtins. ctest launches an
+# msys2 bash whose PATH (ucrt64/bin) has the compiler but NOT coreutils like
+# `dirname`/`cat`/`grep`/`tr`; relying on those silently emptied $here and made
+# the whole suite match zero files and "pass" vacuously. Everything below uses
+# builtins; the only externals are `digon` and the C compiler it shells out to.
+script_dir="${0%/*}"
+[[ "$script_dir" == "$0" ]] && script_dir="."
+here="$(cd "$script_dir" && pwd)"
 digon="${1:-$here/../build/digon.exe}"
 [[ -x "$digon" ]] || digon="$here/../build/digon"
 
@@ -50,11 +57,11 @@ check_golden() {
 
     local ok=1
     if [[ -f "$out_file" ]]; then
-        local expected; expected="$(tr -d '\r' < "$out_file")"
+        local expected; expected="$(<"$out_file")"; expected="${expected//$'\r'/}"
         [[ "$actual" == "$expected" ]] || { ok=0; echo "  stdout mismatch: $label (got '$actual')"; }
     fi
     if [[ -f "$exit_file" ]]; then
-        local want; want="$(cat "$exit_file")"
+        local want; want="$(<"$exit_file")"; want="${want//[$'\r\n']/}"
         [[ "$rc" == "$want" ]] || { ok=0; echo "  exit mismatch: $label (got $rc, want $want)"; }
     fi
     if [[ $ok == 1 ]]; then echo "  pass  golden/$label"; ((pass++)); else ((fail++)); fi
@@ -69,13 +76,13 @@ check_compile_fail() {
     local output rc
     output="$("$digon" build "$dg" -o "${base}.exe" 2>&1)"
     rc=$?
-    rm -f "${base}.exe" "${base}.exe.o" 2>/dev/null
+    rm -f "${base}.exe" "${base}.exe.o" 2>/dev/null  # cleanup only; ok if rm is absent
 
     local ok=1
     [[ $rc -ne 0 ]] || { ok=0; echo "  expected failure but it compiled: $label"; }
     if [[ -f "$txt_file" ]]; then
-        local sub; sub="$(cat "$txt_file")"
-        grep -qF "$sub" <<<"$output" || { ok=0; echo "  missing diagnostic '$sub' in: $label"; }
+        local sub; sub="$(<"$txt_file")"; sub="${sub//$'\r'/}"; sub="${sub%$'\n'}"
+        [[ "$output" == *"$sub"* ]] || { ok=0; echo "  missing diagnostic '$sub' in: $label"; }
     fi
     if [[ $ok == 1 ]]; then echo "  pass  compile_fail/$label"; ((pass++)); else ((fail++)); fi
 }

@@ -10,19 +10,21 @@
 
 // `Error` is the recovery type: comparisons against it always succeed so a
 // single root error does not cascade into a flood of follow-on diagnostics.
-enum class TyKind : uint8_t { Error, Void, Bool, Int, Float, Ptr, Struct, Enum, Ref };
+enum class TyKind : uint8_t { Error, Void, Bool, Int, Float, Ptr, Struct, Enum, Ref, Newtype };
 
-struct StructInfo; // defined in types.cc
-struct EnumInfo;   // defined in types.cc
+struct StructInfo;  // defined in types.cc
+struct EnumInfo;    // defined in types.cc
+struct NewtypeInfo; // defined in types.cc
 
 struct Type {
-    TyKind      kind;
-    uint16_t    bits;      // Int: 8/16/32/64/128; Float: 32/64
-    bool        is_signed; // Int
-    bool        is_mut;    // Ref: ref mut T vs ref T
-    Type*       inner;     // Ptr / Ref pointee (may be null for generic Ptr)
-    StructInfo* sinfo;     // Struct: the declaration info
-    EnumInfo*   einfo;     // Enum: the declaration info
+    TyKind       kind;
+    uint16_t     bits;      // Int: 8/16/32/64/128; Float: 32/64
+    bool         is_signed; // Int
+    bool         is_mut;    // Ref: ref mut T vs ref T
+    Type*        inner;     // Ptr / Ref pointee; Newtype: underlying type
+    StructInfo*  sinfo;     // Struct: the declaration info
+    EnumInfo*    einfo;     // Enum: the declaration info
+    NewtypeInfo* ninfo;     // Newtype: nominal identity + underlying
 };
 
 // Type-check a module. Mostly pure validation; the one exception is that an

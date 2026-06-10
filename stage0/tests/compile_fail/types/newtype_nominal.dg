@@ -1,0 +1,7 @@
+// A newtype is distinct from its underlying type.
+type UserId = i64
+func get(u: UserId) -> i64 { u as i64 }
+func main() -> i32 {
+    let n = 5i64
+    get(n) as i32     // i64 is not a UserId
+}

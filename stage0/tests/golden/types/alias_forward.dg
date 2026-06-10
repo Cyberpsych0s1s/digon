@@ -1,0 +1,10 @@
+// Aliases resolve lazily: `A` may reference `B` before `B` is declared, and
+// an alias may be used in a signature regardless of source order.
+alias A = B
+alias B = i32
+
+func add(x: A, y: A) -> A { x + y }
+
+func main() -> i32 {
+    add(40, 2)
+}

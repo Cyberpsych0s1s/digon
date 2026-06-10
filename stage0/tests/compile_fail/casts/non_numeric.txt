@@ -1,1 +1,1 @@
-only converts between numeric types
+cannot cast bool to i32

@@ -27,6 +27,15 @@ struct EnumInfo {
     bool        is_must_defer;
 };
 
+// A newtype: a distinct nominal type wrapping `underlying`. Two newtypes are
+// equal only if they share this identity; converting to/from the underlying
+// type needs an explicit `as` cast.
+struct NewtypeInfo {
+    uint32_t    name;
+    const char* name_str;
+    Type*       underlying;
+};
+
 namespace {
 
 struct FuncSig {
@@ -34,6 +43,19 @@ struct FuncSig {
     uint32_t nparams;
     Type*    ret;
     bool     is_extern;
+};
+
+// Lazily-resolved `alias`/newtype declaration. Names are registered up front;
+// the target type resolves on first use, so definitions may reference each
+// other (and be referenced from any type position) regardless of source order.
+// `state` drives cycle detection: a definition reached while already resolving
+// is self-referential.
+struct AliasDef {
+    const AliasData* ad;       // source decl: target TypeExpr + is_newtype
+    Span             span;     // declaration span, for the cycle diagnostic
+    Type*            resolved; // transparent alias: resolved target (also error cache)
+    NewtypeInfo*     ni;       // newtype: nominal identity, built on first resolve
+    uint8_t          state;    // 0 unresolved, 1 in-progress, 2 done
 };
 
 struct Binding {
@@ -70,6 +92,7 @@ struct Checker {
     Map       funcs;        // interned name -> FuncSig*
     Map       structs;      // interned name -> StructInfo*
     Map       enums;        // interned name -> EnumInfo*
+    Map       type_defs;    // interned name -> AliasDef* (alias + newtype, lazy)
     Map       scope;        // interned name -> Binding* (flat, per function)
     Map       borrow_state; // interned name -> BorrowState* (per function)
     int       loop_depth;   // 0 = not inside any loop body
@@ -85,63 +108,49 @@ struct Checker {
     // propagated through arithmetic, parens, if/else, and block tails.
     Type*     int_hint;
 
-    Type t_error{TyKind::Error, 0, false, false, nullptr, nullptr, nullptr};
-    Type t_void{TyKind::Void, 0, false, false, nullptr, nullptr, nullptr};
-    Type t_bool{TyKind::Bool, 0, false, false, nullptr, nullptr, nullptr};
-    Type t_ptr{TyKind::Ptr, 0, false, false, nullptr, nullptr, nullptr};
+    Type t_error{TyKind::Error, 0, false, false, nullptr, nullptr, nullptr, nullptr};
+    Type t_void{TyKind::Void, 0, false, false, nullptr, nullptr, nullptr, nullptr};
+    Type t_bool{TyKind::Bool, 0, false, false, nullptr, nullptr, nullptr, nullptr};
+    Type t_ptr{TyKind::Ptr, 0, false, false, nullptr, nullptr, nullptr, nullptr};
 };
 
-Type* mk_int(Checker* c, uint16_t bits, bool sign) {
+Type* mk_type(Checker* c, TyKind k) {
     Type* t = ARENA_NEW(c->a, Type);
-    t->kind = TyKind::Int;
+    t->kind = k; t->bits = 0; t->is_signed = false; t->is_mut = false;
+    t->inner = nullptr; t->sinfo = nullptr; t->einfo = nullptr; t->ninfo = nullptr;
+    return t;
+}
+Type* mk_int(Checker* c, uint16_t bits, bool sign) {
+    Type* t = mk_type(c, TyKind::Int);
     t->bits = bits;
     t->is_signed = sign;
-    t->inner = nullptr;
-    t->is_mut = false;
-    t->sinfo = nullptr;
-    t->einfo = nullptr;
     return t;
 }
 Type* mk_float(Checker* c, uint16_t bits) {
-    Type* t = ARENA_NEW(c->a, Type);
-    t->kind = TyKind::Float;
+    Type* t = mk_type(c, TyKind::Float);
     t->bits = bits;
-    t->is_signed = false;
-    t->inner = nullptr;
-    t->is_mut = false;
-    t->sinfo = nullptr;
-    t->einfo = nullptr;
     return t;
 }
 Type* mk_struct(Checker* c, StructInfo* si) {
-    Type* t = ARENA_NEW(c->a, Type);
-    t->kind = TyKind::Struct;
-    t->bits = 0;
-    t->is_signed = false;
-    t->inner = nullptr;
+    Type* t = mk_type(c, TyKind::Struct);
     t->sinfo = si;
-    t->einfo = nullptr;
     return t;
 }
 Type* mk_ref(Checker* c, Type* inner, bool is_mut) {
-    Type* t = ARENA_NEW(c->a, Type);
-    t->kind      = TyKind::Ref;
-    t->bits      = 0;
-    t->is_signed = false;
-    t->is_mut    = is_mut;
-    t->inner     = inner;
-    t->sinfo     = nullptr;
-    t->einfo     = nullptr;
+    Type* t = mk_type(c, TyKind::Ref);
+    t->is_mut = is_mut;
+    t->inner  = inner;
     return t;
 }
 Type* mk_enum(Checker* c, EnumInfo* ei) {
-    Type* t = ARENA_NEW(c->a, Type);
-    t->kind = TyKind::Enum;
-    t->bits = 0;
-    t->is_signed = false;
-    t->inner = nullptr;
-    t->sinfo = nullptr;
+    Type* t = mk_type(c, TyKind::Enum);
     t->einfo = ei;
+    return t;
+}
+Type* mk_newtype(Checker* c, NewtypeInfo* ni) {
+    Type* t = mk_type(c, TyKind::Newtype);
+    t->ninfo = ni;
+    t->inner = ni->underlying;
     return t;
 }
 
@@ -170,6 +179,7 @@ bool type_eq(const Type* a, const Type* b) {
         case TyKind::Struct: return a->sinfo == b->sinfo;
         case TyKind::Enum:   return a->einfo == b->einfo;
         case TyKind::Ref:    return a->is_mut == b->is_mut && a->inner && b->inner && type_eq(a->inner, b->inner);
+        case TyKind::Newtype: return a->ninfo == b->ninfo; // nominal
         default:             return true; // Void, Bool, Error
     }
 }
@@ -192,21 +202,20 @@ const char* tyname(const Type* t) {
         case TyKind::Enum:   std::snprintf(buf, 48, "%s", t->einfo ? t->einfo->name_str : "?"); break;
         case TyKind::Ref:    std::snprintf(buf, 48, "ref%s %s", t->is_mut ? " mut" : "",
                                           t->inner ? tyname(t->inner) : "_"); break;
+        case TyKind::Newtype: std::snprintf(buf, 48, "%s", t->ninfo ? t->ninfo->name_str : "?"); break;
     }
     return buf;
 }
 
+Type* resolve_aliasdef(Checker* c, AliasDef* d); // lazy alias/newtype resolution
+
 Type* resolve_type(Checker* c, const TypeExpr* te) {
     if (!te) return &c->t_void;
     if (te->kind == TypeKind::Pointer) {
-        Type* t  = ARENA_NEW(c->a, Type);
-        t->kind  = TyKind::Ptr;
-        t->bits  = 0;
-        t->is_signed = false;
-        t->is_mut    = false;
+        // Route through mk_type so every Type field (incl. future additions
+        // like ninfo) is zero-initialized; only set what differs.
+        Type* t  = mk_type(c, TyKind::Ptr);
         t->inner = resolve_type(c, te->inner);
-        t->sinfo = nullptr;
-        t->einfo = nullptr;
         return t;
     }
     if (te->kind == TypeKind::Ref) {
@@ -245,6 +254,10 @@ Type* resolve_type(Checker* c, const TypeExpr* te) {
     if (map_lookup(&c->enums, te->name, &ei)) {
         return mk_enum(c, static_cast<EnumInfo*>(ei));
     }
+    void* dv = nullptr;
+    if (map_lookup(&c->type_defs, te->name, &dv)) {
+        return resolve_aliasdef(c, static_cast<AliasDef*>(dv));
+    }
     diag_errorf(c->diag, te->span, "unknown type '%.*s'", static_cast<int>(len), s);
     return &c->t_error;
 }
@@ -253,6 +266,40 @@ const char* name_of(Checker* c, uint32_t id) {
     size_t      len = 0;
     const char* s   = intern_str(c->in, id, &len);
     return s ? s : "?";
+}
+
+// Resolve an alias/newtype on demand, memoizing the result. Re-entry while a
+// definition is still resolving means it refers to itself (directly or through
+// a chain) — reported once, then cached as Error so it can't loop or cascade.
+Type* resolve_aliasdef(Checker* c, AliasDef* d) {
+    if (d->state == 2) // already resolved
+        return d->ad->is_newtype ? mk_newtype(c, d->ni) : d->resolved;
+    if (d->state == 1) { // reached while resolving -> cycle
+        diag_errorf(c->diag, d->span, "type '%s' is defined in terms of itself",
+                    name_of(c, d->ad->name));
+        d->state    = 2;
+        d->resolved = &c->t_error;
+        if (d->ad->is_newtype) {
+            NewtypeInfo* ni = ARENA_NEW(c->a, NewtypeInfo);
+            ni->name = d->ad->name; ni->name_str = name_of(c, d->ad->name);
+            ni->underlying = &c->t_error;
+            d->ni = ni;
+        }
+        return &c->t_error;
+    }
+    d->state      = 1;
+    Type* target  = resolve_type(c, d->ad->target);
+    if (d->ad->is_newtype) {
+        NewtypeInfo* ni = ARENA_NEW(c->a, NewtypeInfo);
+        ni->name = d->ad->name; ni->name_str = name_of(c, d->ad->name);
+        ni->underlying = target;
+        d->ni    = ni;
+        d->state = 2;
+        return mk_newtype(c, ni);
+    }
+    d->resolved = target;
+    d->state    = 2;
+    return target;
 }
 
 Type* check_expr(Checker* c, const Expr* e);
@@ -487,6 +534,66 @@ Type* check_binary(Checker* c, const Expr* e, Type* hint) {
 
     if (op == Tok::Eq) {
         const Expr* lhs = e->as.binary.lhs;
+
+        // Field assignment: `base.field = rhs`. The base must be a named binding
+        // that is a struct (mutable via `var`) or a `ref mut` to one.
+        if (lhs->kind == ExprKind::Field) {
+            const Expr* base = lhs->as.field.obj;
+            if (base->kind != ExprKind::Ident) {
+                check_expr(c, e->as.binary.rhs);
+                diag_errorf(c->diag, e->span, "assignment target must be a field of a named binding");
+                return &c->t_error;
+            }
+            void* bv = nullptr;
+            if (!map_lookup(&c->scope, base->as.ident.name, &bv)) {
+                check_expr(c, e->as.binary.rhs);
+                diag_errorf(c->diag, base->span, "unknown identifier '%s'", name_of(c, base->as.ident.name));
+                return &c->t_error;
+            }
+            Binding* bnd     = static_cast<Binding*>(bv);
+            bool     via_ref = bnd->type->kind == TyKind::Ref;
+            Type*    sty     = via_ref ? bnd->type->inner : bnd->type;
+            if (!sty || sty->kind != TyKind::Struct) {
+                check_expr(c, e->as.binary.rhs);
+                diag_errorf(c->diag, lhs->span, "cannot assign to field '%s' of non-struct type %s",
+                            name_of(c, lhs->as.field.name), tyname(bnd->type));
+                return &c->t_error;
+            }
+            StructInfo* si  = sty->sinfo;
+            Type*       fty = nullptr;
+            for (uint32_t k = 0; k < si->nfields; k++)
+                if (si->field_names[k] == lhs->as.field.name) { fty = si->field_types[k]; break; }
+            if (!fty) {
+                check_expr(c, e->as.binary.rhs);
+                diag_errorf(c->diag, lhs->span, "struct %s has no field '%s'",
+                            si->name_str, name_of(c, lhs->as.field.name));
+                return &c->t_error;
+            }
+            bool mut_ok = via_ref ? bnd->type->is_mut : bnd->is_mut;
+            if (!mut_ok)
+                diag_errorf(c->diag, e->span, via_ref
+                    ? "cannot assign through immutable reference '%s' (needs 'ref mut')"
+                    : "cannot assign to a field of immutable binding '%s' (declare it with 'var')",
+                    name_of(c, base->as.ident.name));
+            Type* rt = check_expr_as(c, e->as.binary.rhs, fty); // literal adopts field type
+            if (mut_ok && !type_eq(fty, rt))
+                diag_errorf(c->diag, e->span, "cannot assign %s to field '%s' of type %s",
+                            tyname(rt), name_of(c, lhs->as.field.name), tyname(fty));
+            // A value base cannot be mutated while it is borrowed.
+            if (!via_ref) {
+                void* bsv = nullptr;
+                if (map_lookup(&c->borrow_state, base->as.ident.name, &bsv)) {
+                    BorrowState* bs = static_cast<BorrowState*>(bsv);
+                    uint32_t shared = 0; bool excl = false;
+                    effective_borrows(c, bs, &shared, &excl);
+                    if (shared > 0 || excl)
+                        diag_errorf(c->diag, e->span, "cannot assign to '%s' while it is borrowed",
+                                    name_of(c, base->as.ident.name));
+                }
+            }
+            return fty;
+        }
+
         if (lhs->kind != ExprKind::Ident) {
             check_expr(c, e->as.binary.rhs);
             diag_errorf(c->diag, e->span, "invalid assignment target");
@@ -1035,18 +1142,22 @@ Type* check_expr(Checker* c, const Expr* e) {
             return result ? result : &c->t_void;
         }
         case ExprKind::Cast: {
-            Type* src = check_expr(c, e->as.cast.operand);
             Type* dst = resolve_type(c, e->as.cast.target);
+            // When casting into a newtype, an unsuffixed literal operand adopts
+            // the newtype's underlying type (so `5 as UserId` works).
+            Type* uhint = (dst->kind == TyKind::Newtype) ? dst->ninfo->underlying : nullptr;
+            Type* src   = check_expr_as(c, e->as.cast.operand, uhint);
             // resolve_type already reported any unknown target type.
             if (dst->kind == TyKind::Error) return &c->t_error;
-            // A prior error in the operand shouldn't cascade: trust the
-            // annotation and continue with the destination type.
+            // A prior error in the operand shouldn't cascade.
             if (src->kind == TyKind::Error) return dst;
-            // `as` converts only between numeric scalars (int/float).
+            // newtype <-> its underlying type (zero-cost nominal conversion).
+            if (dst->kind == TyKind::Newtype && type_eq(src, dst->ninfo->underlying)) return dst;
+            if (src->kind == TyKind::Newtype && type_eq(src->ninfo->underlying, dst)) return dst;
+            // `as` otherwise converts only between numeric scalars (int/float).
             if (is_numeric(src) && is_numeric(dst)) return dst;
             diag_errorf(c->diag, e->span,
-                        "cannot cast %s to %s; 'as' only converts between numeric types",
-                        tyname(src), tyname(dst));
+                        "cannot cast %s to %s", tyname(src), tyname(dst));
             return &c->t_error;
         }
     }
@@ -1227,8 +1338,9 @@ bool is_copy_type(const Type* t) {
     if (!t) return true;
     switch (t->kind) {
         case TyKind::Struct:
-        case TyKind::Enum:   return false;
-        default:             return true;
+        case TyKind::Enum:    return false;
+        case TyKind::Newtype: return is_copy_type(t->inner); // copies iff underlying does
+        default:              return true;
     }
 }
 
@@ -1394,10 +1506,28 @@ bool check_module(const Module* m, arena* a, Interner* in, Diag* diag) {
     c.funcs        = Map{};
     c.structs      = Map{};
     c.enums        = Map{};
+    c.type_defs    = Map{};
     c.scope        = Map{};
     c.borrow_state = Map{};
 
     uint32_t main_id = intern_cstr(in, "main");
+
+    // Pass 0: register alias/newtype names before any type resolution so they
+    // may be referenced from any type position (struct fields, enum payloads,
+    // signatures) and from one another, in any source order. Targets resolve
+    // lazily (resolve_aliasdef) with cycle detection.
+    for (uint32_t i = 0; i < m->nitems; i++) {
+        const Item* it = m->items[i];
+        if (it->kind != ItemKind::Alias) continue;
+        const AliasData& ad = it->as.alias;
+        if (map_contains(&c.type_defs, ad.name)) {
+            diag_errorf(diag, it->span, "duplicate definition of type '%s'", name_of(&c, ad.name));
+            continue;
+        }
+        AliasDef* d = ARENA_NEW(a, AliasDef);
+        d->ad = &ad; d->span = it->span; d->resolved = nullptr; d->ni = nullptr; d->state = 0;
+        map_put(&c.type_defs, ad.name, d);
+    }
 
     // Enum declarations. Variants may be fieldless or carry a single typed
     // payload; all payload-having variants of one enum must share a type.
@@ -1405,7 +1535,8 @@ bool check_module(const Module* m, arena* a, Interner* in, Diag* diag) {
         const Item* it = m->items[i];
         if (it->kind != ItemKind::Enum) continue;
         const EnumData& ed = it->as.enum_;
-        if (map_contains(&c.enums, ed.name) || map_contains(&c.structs, ed.name)) {
+        if (map_contains(&c.enums, ed.name) || map_contains(&c.structs, ed.name) ||
+            map_contains(&c.type_defs, ed.name)) {
             diag_errorf(diag, it->span, "duplicate definition of type '%s'", name_of(&c, ed.name));
             continue;
         }
@@ -1434,7 +1565,8 @@ bool check_module(const Module* m, arena* a, Interner* in, Diag* diag) {
         const Item* it = m->items[i];
         if (it->kind != ItemKind::Struct) continue;
         const StructData& sd = it->as.struct_;
-        if (map_contains(&c.structs, sd.name)) {
+        if (map_contains(&c.structs, sd.name) || map_contains(&c.enums, sd.name) ||
+            map_contains(&c.type_defs, sd.name)) {
             diag_errorf(diag, it->span, "duplicate definition of type '%s'", name_of(&c, sd.name));
             continue;
         }
@@ -1457,6 +1589,17 @@ bool check_module(const Module* m, arena* a, Interner* in, Diag* diag) {
         if (!map_lookup(&c.structs, sd.name, &siv)) continue;
         StructInfo* si = static_cast<StructInfo*>(siv);
         for (uint32_t k = 0; k < sd.nfields; k++) si->field_types[k] = resolve_type(&c, sd.fields[k].type);
+    }
+
+    // Force-resolve every alias/newtype (names were registered in Pass 0) so
+    // unused definitions are still validated and cycles still reported. Already-
+    // resolved entries are a no-op; the rest resolve lazily with cycle checks.
+    for (uint32_t i = 0; i < m->nitems; i++) {
+        const Item* it = m->items[i];
+        if (it->kind != ItemKind::Alias) continue;
+        void* dv = nullptr;
+        if (map_lookup(&c.type_defs, it->as.alias.name, &dv))
+            resolve_aliasdef(&c, static_cast<AliasDef*>(dv));
     }
 
     // Pass 1: function signatures.
@@ -1500,6 +1643,7 @@ bool check_module(const Module* m, arena* a, Interner* in, Diag* diag) {
     map_free(&c.funcs);
     map_free(&c.structs);
     map_free(&c.enums);
+    map_free(&c.type_defs);
     for (size_t i = 0; i < c.borrow_state.capacity; i++) {
         if (!c.borrow_state.state[i]) continue;
         BorrowState* bs = static_cast<BorrowState*>(c.borrow_state.slots[i].val);

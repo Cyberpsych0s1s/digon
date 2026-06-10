@@ -24,6 +24,12 @@ void advance(Parser* p) {
 bool at(Parser* p, Tok k)     { return curk(p) == k; }
 bool accept(Parser* p, Tok k) { if (at(p, k)) { advance(p); return true; } return false; }
 
+// Kind of the token `off` positions ahead (clamped to the trailing Eof).
+Tok peek_kind(Parser* p, uint32_t off) {
+    uint32_t i = p->pos + off;
+    return i < p->n ? p->toks[i].kind : Tok::Eof;
+}
+
 void error_here(Parser* p, const char* msg) {
     diag_errorf(p->diag, cur(p).span, "%s (found '%s')", msg, tok_name(curk(p)));
 }
@@ -508,10 +514,10 @@ Expr* parse_expr(Parser* p) { return parse_binary(p, 1); }
 // --------------------------------------------------------------------- types
 TypeExpr* parse_type(Parser* p) {
     Span      span = cur(p).span;
-    TypeExpr* t    = ARENA_NEW(p->a, TypeExpr);
+    // Zero-init so every field (e.g. is_mut, only set on the Ref path) has a
+    // defined value regardless of which type form we parse below.
+    TypeExpr* t    = ARENA_NEW_ZERO(p->a, TypeExpr);
     t->span  = span;
-    t->name  = 0;
-    t->inner = nullptr;
 
     if (at(p, Tok::Star)) {           // raw pointer `*T`
         advance(p);
@@ -681,6 +687,7 @@ Item* parse_func(Parser* p) {
     Vec<Param> params{};
     if (!at(p, Tok::RParen)) {
         do {
+            uint32_t before = p->pos;
             Param par{};
             par.span = cur(p).span;
             if (at(p, Tok::Ident)) { par.name = cur(p).ident_id; advance(p); }
@@ -688,6 +695,9 @@ Item* parse_func(Parser* p) {
             expect(p, Tok::Colon, "expected ':' after parameter name");
             par.type = parse_type(p);
             params.push(par);
+            // Guard against a stalled cursor (malformed param that consumed
+            // nothing) so the loop can't spin or emit unbounded errors.
+            if (p->pos == before && !at(p, Tok::Comma)) break;
         } while (accept(p, Tok::Comma));
     }
     expect(p, Tok::RParen, "expected ')'");
@@ -772,7 +782,25 @@ Item* parse_type_decl(Parser* p) {
     if (at(p, Tok::Ident)) { name = cur(p).ident_id; advance(p); }
     else error_here(p, "expected a type name");
 
-    if (at(p, Tok::Eq)) return parse_enum_decl(p, name, start);
+    if (at(p, Tok::Eq)) {
+        // Disambiguate a newtype (`type X = T`) from a sum type. It's an enum
+        // iff the RHS begins with `|`, or an identifier followed by `|` or `(`.
+        Tok  t1      = peek_kind(p, 1);
+        Tok  t2      = peek_kind(p, 2);
+        bool is_enum = (t1 == Tok::Pipe) ||
+                       (t1 == Tok::Ident && (t2 == Tok::Pipe || t2 == Tok::LParen));
+        if (is_enum) return parse_enum_decl(p, name, start);
+
+        advance(p); // '='
+        TypeExpr* target = parse_type(p);
+        Item*     it     = ARENA_NEW(p->a, Item);
+        it->kind = ItemKind::Alias;
+        it->span = start;
+        it->as.alias.name       = name;
+        it->as.alias.target     = target;
+        it->as.alias.is_newtype = true;
+        return it;
+    }
 
     if (!at(p, Tok::LBrace)) {
         error_here(p, "expected '{' (struct) or '=' (enum) after type name");
@@ -809,6 +837,24 @@ Item* parse_type_decl(Parser* p) {
     return it;
 }
 
+Item* parse_alias(Parser* p) {
+    Span start = cur(p).span;
+    advance(p); // 'alias'
+    uint32_t name = 0;
+    if (at(p, Tok::Ident)) { name = cur(p).ident_id; advance(p); }
+    else error_here(p, "expected an alias name");
+    expect(p, Tok::Eq, "expected '=' in alias");
+    TypeExpr* target = parse_type(p);
+
+    Item* it = ARENA_NEW(p->a, Item);
+    it->kind = ItemKind::Alias;
+    it->span = start;
+    it->as.alias.name       = name;
+    it->as.alias.target     = target;
+    it->as.alias.is_newtype = false; // transparent
+    return it;
+}
+
 Item* parse_item(Parser* p) {
     bool is_must_defer = false;
     if (at(p, Tok::At)) {
@@ -834,8 +880,9 @@ Item* parse_item(Parser* p) {
         }
         return it;
     }
+    if (at(p, Tok::KwAlias)) return parse_alias(p);
     if (at(p, Tok::KwPub) || at(p, Tok::KwFunc) || at(p, Tok::KwExtern)) return parse_func(p);
-    error_here(p, "expected an item ('func', 'extern func', or 'type')");
+    error_here(p, "expected an item ('func', 'extern func', 'type', or 'alias')");
     return nullptr;
 }
 
@@ -859,8 +906,8 @@ Module* parse_module(Token* toks, uint32_t ntoks, arena* a, Interner* in, Diag* 
         if (it) items.push(it);
         // Recover to the next item if we stalled or hit junk.
         if (p.pos == before) {
-            while (!at(&p, Tok::KwFunc) && !at(&p, Tok::KwPub) &&
-                   !at(&p, Tok::KwExtern) && !at(&p, Tok::KwType) && !at(&p, Tok::Eof)) {
+            while (!at(&p, Tok::KwFunc) && !at(&p, Tok::KwPub) && !at(&p, Tok::KwExtern) &&
+                   !at(&p, Tok::KwType) && !at(&p, Tok::KwAlias) && !at(&p, Tok::Eof)) {
                 advance(&p);
             }
             if (p.pos == before) advance(&p);

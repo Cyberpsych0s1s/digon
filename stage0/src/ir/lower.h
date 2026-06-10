@@ -64,6 +64,10 @@ enum class MOp : uint8_t {
     Call,
     // aggregates
     MakeStruct, GetField,
+    // FieldPtr: address of a struct field for assignment. a = struct pointer,
+    // imm_int = struct index, field_index = field; result is a pointer (Store
+    // into it). Mirrors GetField but produces an lvalue rather than a value.
+    FieldPtr,
     // borrows: AddrOf is a no-op rebrand of an alloca's pointer (operand a = the slot)
     AddrOf,
     // enums with mixed-payload variants are kept in a `{ i32 tag, [N x i8] }`

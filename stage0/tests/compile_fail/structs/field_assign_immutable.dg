@@ -1,0 +1,7 @@
+// A field of an immutable (let) binding cannot be assigned.
+type Counter { n: i64 }
+func main() -> i32 {
+    let c = Counter { n: 5 }
+    c.n = 9
+    c.n as i32
+}

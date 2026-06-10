@@ -370,6 +370,14 @@ void fmt_item(Fmt* f, const Item* it) {
             }
             break;
         }
+        case ItemKind::Alias: {
+            const AliasData& a = it->as.alias;
+            put(f, a.is_newtype ? "type " : "alias ");
+            put_name(f, a.name);
+            put(f, " = ");
+            fmt_type(f, a.target);
+            break;
+        }
     }
 }
 

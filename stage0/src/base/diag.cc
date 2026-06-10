@@ -118,8 +118,11 @@ void diag_flush(Diag* d) {
         std::fprintf(stderr, "  ");
         for (uint32_t i = 1; i < lc.col; i++) std::fputc(' ', stderr);
         uint32_t carets = (dg.span.end > dg.span.start) ? (dg.span.end - dg.span.start) : 1;
-        if (dg.span.start + carets > line_end) carets = line_end - dg.span.start;
-        if (carets == 0) carets = 1;
+        // Clamp to the line, guarding the subtraction: if the span starts at or
+        // past the line end (e.g. an EOF span), fall back to a single caret
+        // rather than underflowing uint32_t into a runaway loop.
+        if (dg.span.start >= line_end) carets = 1;
+        else if (dg.span.start + carets > line_end) carets = line_end - dg.span.start;
         for (uint32_t i = 0; i < carets; i++) std::fputc('^', stderr);
         std::fputc('\n', stderr);
     }

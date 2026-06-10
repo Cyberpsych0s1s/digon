@@ -1,0 +1,13 @@
+// Mutate a struct field directly and through a `ref mut` method (UFCS).
+type Counter { n: i64 }
+func bump(c: ref mut Counter, by: i64) -> i64 {
+    c.n = c.n + by
+    c.n
+}
+func main() -> i32 {
+    var c = Counter { n: 5 }
+    c.n = c.n + 10        // direct field assign through a var -> 15
+    let a = c.bump(20)    // mutate through ref mut -> 35
+    let b = c.bump(7)     // -> 42
+    b as i32
+}

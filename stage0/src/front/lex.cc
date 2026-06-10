@@ -268,11 +268,16 @@ Token lex_number(Lexer* lx) {
 
     // Build a clean copy of the digit region (underscores stripped) and parse.
     char   buf[128];
-    size_t n = 0;
-    for (size_t i = start; i < digits_end && n + 1 < sizeof(buf); i++) {
-        if (lx->src[i] != '_') buf[n++] = lx->src[i];
+    size_t n         = 0;
+    bool   truncated = false;
+    for (size_t i = start; i < digits_end; i++) {
+        if (lx->src[i] == '_') continue;
+        if (n + 1 >= sizeof(buf)) { truncated = true; break; }
+        buf[n++] = lx->src[i];
     }
     buf[n] = '\0';
+    // Don't silently parse a truncated prefix into a wrong value.
+    if (truncated) diag_errorf(lx->diag, t.span, "numeric literal has too many digits");
 
     if (is_float) {
         t.float_value = std::strtod(buf, nullptr);
@@ -646,6 +651,13 @@ static Token lex_normal(Lexer* lx) {
     bool   saw_nl   = skip_trivia(lx, &nl_start);
 
     if (lx->pos >= lx->len) {
+        // An open interpolation frame at EOF means the input ended mid-`${...}`;
+        // report it rather than silently accepting the truncated source.
+        if (lx->modes.len > 0 && lx->modes.back().is_interp)
+            diag_errorf(lx->diag,
+                        Span{lx->file_id, static_cast<uint32_t>(lx->pos),
+                             static_cast<uint32_t>(lx->pos)},
+                        "unterminated string interpolation at end of file");
         return make(lx, Tok::Eof, lx->pos);
     }
 
